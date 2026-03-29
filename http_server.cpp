@@ -311,11 +311,6 @@ std::string format_http_info(
     ss << "  /exec returns: {\"output\": \"...\", \"success\": true}\n";
     ss << "  /ask returns:  {\"response\": \"...\", \"success\": true}\n\n";
 
-    ss << "CLI TOOL:\n";
-    ss << "  windbg_agent.exe --url=" << url << " exec \"kb\"\n";
-    ss << "  windbg_agent.exe --url=" << url << " ask \"what caused this crash?\"\n";
-    ss << "  windbg_agent.exe --url=" << url << " interactive\n";
-
     return ss.str();
 }
 
