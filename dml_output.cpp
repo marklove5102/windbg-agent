@@ -122,32 +122,6 @@ void DmlOutput::OutputCommandResult(const char* result)
     }
 }
 
-void DmlOutput::OutputAgentThinking(const char* msg)
-{
-    if (!control_)
-        return;
-
-    if (dml_supported_)
-    {
-        std::string escaped = EscapeDml(msg);
-        control_->ControlledOutput(DEBUG_OUTCTL_AMBIENT_DML, DEBUG_OUTPUT_NORMAL,
-                                   "<col fg=\"empfg\"><i>%s</i></col>\n", escaped.c_str());
-    }
-    else
-    {
-        control_->Output(DEBUG_OUTPUT_NORMAL, "%s\n", msg);
-    }
-}
-
-void DmlOutput::OutputAgentResponse(const char* msg)
-{
-    if (!control_)
-        return;
-
-    // Agent response is normal text, no special coloring needed
-    control_->Output(DEBUG_OUTPUT_NORMAL, "%s\n", msg);
-}
-
 void DmlOutput::OutputError(const char* msg)
 {
     if (!control_)

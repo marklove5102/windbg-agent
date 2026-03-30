@@ -1,10 +1,6 @@
 # WinDbg Agent
 
-AI-powered debugging assistant for WinDbg. Ask questions about your debug session and get intelligent answers with automatic debugger command execution.
-
-Supports multiple AI providers:
-- **GitHub Copilot** - via [copilot-sdk-cpp](https://github.com/0xeb/copilot-sdk-cpp)
-- **Claude** (Anthropic) - via [claude-agent-sdk-cpp](https://github.com/0xeb/claude-agent-sdk-cpp)
+WinDbg/CDB extension that exposes the debugger via HTTP and MCP servers, letting external AI agents (Claude Code, Copilot, etc.) control debug sessions programmatically.
 
 ## Building
 
@@ -31,8 +27,8 @@ cmake --build --preset x86
 ```
 
 Output:
-- **x64**: `build-x64/Release/windbg_agent.dll`
-- **x86**: `build-x86/Release/windbg_agent.dll`
+- **x64**: `build-x64/Release/windbg_agent.dll` and `windbg_agent.exe`
+- **x86**: `build-x86/Release/windbg_agent.dll` and `windbg_agent.exe`
 
 ### Alternative: No Visual Studio 2022
 
@@ -72,98 +68,92 @@ cmake --build build-x64
 | Command | Description |
 |---------|-------------|
 | `!agent help` | Show help |
-| `!agent version` | Show version and current provider |
-| `!agent provider` | Show current provider |
-| `!agent provider <name>` | Switch provider (claude, copilot) |
-| `!agent ask <question>` | Ask the AI a question |
-| `!agent clear` | Clear conversation history |
-| `!agent prompt` | Show current custom prompt |
-| `!agent prompt <text>` | Set custom prompt (appended to system prompt) |
-| `!agent prompt clear` | Clear custom prompt |
-| `!agent http [bind_addr]` | Start HTTP server for external tools (port auto-assigned) |
+| `!agent version` | Show version |
+| `!agent http [bind_addr]` | Start HTTP server (port auto-assigned) |
 | `!agent mcp [bind_addr]` | Start MCP server for MCP-compatible clients |
-| `!agent version prompt` | Show injected system prompt |
-| `!ai <question>` | Shorthand for `!agent ask` |
 
-### Examples
+### HTTP Server
+
+Start an HTTP server to let external tools execute debugger commands:
 
 ```
-# Ask about the current state
-!ai what is the call stack?
-!ai what is rax + rbx?
-
-# Run commands directly - AI executes and explains
-!ai db @rip L20
-!ai !peb
-
-# Decompilation
-!ai decompile ntdll!RtlAllocateHeap
-
-# Follow-up questions (uses conversation history)
-!ai what about the registers?
-
-# Ask for analysis
-!ai explain this crash
-
-# Switch to Claude provider
-!agent provider claude
-
-# Set a custom prompt for your debugging session
-!agent prompt Focus on memory corruption and heap issues
-
-# Clear history and start fresh
-!agent clear
+!agent http                  # localhost only (default)
+!agent http 0.0.0.0          # all interfaces (no auth — use with care)
 ```
 
-### HTTP Server (External Tool Integration)
+The server prints the auto-assigned URL, endpoints, and usage examples. The output is also copied to the clipboard.
 
-Let external AI agents control the debugger via HTTP:
+**Endpoints:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/exec` | Execute a debugger command |
+| GET | `/status` | Server status |
+| POST | `/shutdown` | Stop the server |
+
+**Examples:**
 
 ```bash
-# In WinDbg - start the HTTP server
-!agent http                  # localhost only (default)
-!agent http 0.0.0.0          # all interfaces (no auth warning)
+# Execute a debugger command
+curl -X POST http://127.0.0.1:<port>/exec \
+  -H "Content-Type: application/json" \
+  -d '{"command": "kb"}'
 
-# From another terminal - use the CLI tool (use the URL printed by !agent http)
-windbg_agent.exe --url=http://127.0.0.1:<port> ask "what caused this crash?"
+# Python
+import requests
+r = requests.post('http://127.0.0.1:<port>/exec', json={'command': 'kb'})
+print(r.json()['output'])
+```
+
+**Response format:**
+```json
+{"output": "...", "success": true}
+```
+
+### CLI Tool
+
+A standalone HTTP client (`windbg_agent.exe`) for scripting against a running HTTP server:
+
+```bash
 windbg_agent.exe --url=http://127.0.0.1:<port> exec "kb"
-windbg_agent.exe --url=http://127.0.0.1:<port> interactive
 windbg_agent.exe --url=http://127.0.0.1:<port> status
 windbg_agent.exe --url=http://127.0.0.1:<port> shutdown
 ```
 
-Settings are saved in `%USERPROFILE%\.windbg_agent\settings.json`.
+The URL defaults to `http://127.0.0.1:9999` or the `WINDBG_AGENT_URL` environment variable.
 
-## Features
+### MCP Server
 
-- **Direct command execution**: Pass debugger commands directly (`!ai db @rsp L10`) - AI runs and explains
-- **Expression evaluation**: Uses `?`, `??`, `dx` for calculations instead of guessing
-- **Decompilation**: Ask to decompile functions - AI uses `uf`, `dv`, `dt` to generate pseudocode
-- **Automatic tool execution**: AI runs debugger commands to gather information
-- **Conversation continuity**: Follow-up questions remember context
-- **Session persistence**: Claude restores sessions across debugger restarts
-- **Multiple providers**: Switch between Claude and Copilot
-- **HTTP Server**: Let external AI agents (like Copilot or Claude Code) control the debugger
+Start an MCP (Model Context Protocol) server for MCP-compatible AI clients:
 
-## Screenshots
+```
+!agent mcp                   # localhost only (default)
+!agent mcp 0.0.0.0           # all interfaces
+```
 
-### Debugging a Double-Free Bug
+Exposes a single `dbg_exec` tool. Add to your MCP client config:
 
-AI analyzes a heap corruption crash, identifies the root cause, and offers next steps:
+```json
+{
+  "mcpServers": {
+    "windbg-agent": {
+      "url": "http://127.0.0.1:<port>/sse"
+    }
+  }
+}
+```
 
-![Crash analysis](assets/crash_analysis.jpg)
+### Screenshots
 
-User asks for decompilation — AI generates readable pseudocode from assembly:
+Start `!agent http` to let external tools control WinDbg:
 
-![Decompilation](assets/decompile.jpg)
+![HTTP server start](assets/handoff_start.jpg)
 
-### HTTP Server: External Tool Integration
+The CLI executes commands remotely:
 
-Start `!agent http` to let external tools control WinDbg. The CLI executes commands remotely:
+![CLI exec](assets/handoff_exec.jpg)
 
-![Handoff with CLI exec](assets/handoff_exec.jpg)
-
-Claude Code (Opus 4.5) controlling WinDbg via HTTP server — analyzing a double-free crash:
+Claude Code controlling WinDbg via HTTP server — analyzing a crash:
 
 ![Claude Code controlling WinDbg](assets/handoff_claude_code.jpg)
 

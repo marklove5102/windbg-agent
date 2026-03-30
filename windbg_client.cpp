@@ -30,9 +30,6 @@ std::string WinDbgClient::ExecuteCommand(const std::string& command)
     if (!control_ || !client_)
         return "Error: No debugger control available";
 
-    // Show user what command is being executed
-    OutputCommand(command);
-
     // Install output capture
     OutputCapture capture;
     capture.Install(client_);
@@ -54,12 +51,6 @@ std::string WinDbgClient::ExecuteCommand(const std::string& command)
     {
         result = "(No output)";
     }
-    else
-    {
-        // Show the command output to the user
-        OutputCommandResult(result);
-    }
-
     return result;
 }
 
@@ -83,43 +74,6 @@ void WinDbgClient::OutputWarning(const std::string& message)
         dml_->OutputWarning(message.c_str());
     else if (control_)
         control_->Output(DEBUG_OUTPUT_WARNING, "%s\n", message.c_str());
-}
-
-void WinDbgClient::OutputCommand(const std::string& command)
-{
-    if (dml_)
-        dml_->OutputCommand(command.c_str());
-    else if (control_)
-        control_->Output(DEBUG_OUTPUT_NORMAL, "$ %s\n", command.c_str());
-}
-
-void WinDbgClient::OutputCommandResult(const std::string& result)
-{
-    if (dml_)
-        dml_->OutputCommandResult(result.c_str());
-    else if (control_)
-        control_->Output(DEBUG_OUTPUT_NORMAL, "%s\n", result.c_str());
-}
-
-void WinDbgClient::OutputThinking(const std::string& message)
-{
-    if (dml_)
-        dml_->OutputAgentThinking(message.c_str());
-    else if (control_)
-        control_->Output(DEBUG_OUTPUT_NORMAL, "%s\n", message.c_str());
-}
-
-void WinDbgClient::OutputResponse(const std::string& response)
-{
-    if (dml_)
-        dml_->OutputAgentResponse(response.c_str());
-    else if (control_)
-        control_->Output(DEBUG_OUTPUT_NORMAL, "%s\n", response.c_str());
-}
-
-bool WinDbgClient::SupportsColor() const
-{
-    return dml_ && dml_->IsDmlSupported();
 }
 
 std::string WinDbgClient::GetTargetName() const

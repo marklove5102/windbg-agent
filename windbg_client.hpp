@@ -25,15 +25,6 @@ class WinDbgClient
     void OutputError(const std::string& message);
     void OutputWarning(const std::string& message);
 
-    // Styled output for agent interactions
-    void OutputCommand(const std::string& command);
-    void OutputCommandResult(const std::string& result);
-    void OutputThinking(const std::string& message);
-    void OutputResponse(const std::string& response);
-
-    // Query capabilities
-    bool SupportsColor() const;
-
     // Get target info (dump file path or process name)
     std::string GetTargetName() const;
 

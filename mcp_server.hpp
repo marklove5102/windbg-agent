@@ -11,14 +11,11 @@
 
 namespace windbg_agent {
 
-// Callbacks for handling requests (same as http_server)
+// Callback for handling exec requests
 using ExecCallback = std::function<std::string(const std::string& command)>;
-using AskCallback = std::function<std::string(const std::string& query)>;
 
 // Internal command structure for cross-thread execution
 struct MCPPendingCommand {
-    enum class Type { Exec, Ask };
-    Type type;
     std::string input;
     std::string result;
     bool completed = false;
@@ -40,15 +37,15 @@ public:
     MCPServer(const MCPServer&) = delete;
     MCPServer& operator=(const MCPServer&) = delete;
 
-    // Start MCP server on given port with callbacks
+    // Start MCP server on given port with callback
     // Returns actual port used (may differ if auto-assigned)
-    // Callbacks will be called on the main thread (in wait())
+    // Callback will be called on the main thread (in wait())
     // bind_addr: "127.0.0.1" for localhost only, "0.0.0.0" for all interfaces
-    int start(int port, ExecCallback exec_cb, AskCallback ask_cb,
+    int start(int port, ExecCallback exec_cb,
               const std::string& bind_addr = "127.0.0.1");
 
     // Block until server stops, processing commands on the calling thread
-    // This is where exec_cb and ask_cb get called
+    // This is where exec_cb gets called
     void wait();
 
     // Stop the server
@@ -64,7 +61,7 @@ public:
     void set_interrupt_check(std::function<bool()> check);
 
     // Queue a command for execution on the main thread (called by MCP tool handlers)
-    MCPQueueResult queue_and_wait(MCPPendingCommand::Type type, const std::string& input);
+    MCPQueueResult queue_and_wait(const std::string& input);
 
 private:
     std::function<bool()> interrupt_check_;
@@ -77,9 +74,8 @@ private:
     std::condition_variable queue_cv_;
     std::queue<MCPPendingCommand*> pending_commands_;
 
-    // Callbacks stored for main thread execution
+    // Callback stored for main thread execution
     ExecCallback exec_cb_;
-    AskCallback ask_cb_;
 
     // Forward declaration - impl hides fastmcpp
     class Impl;

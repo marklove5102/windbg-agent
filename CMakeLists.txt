@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(windbg_agent VERSION 1.0.4 LANGUAGES CXX)
+project(windbg_agent VERSION 1.0.5 LANGUAGES CXX)
 
 # Generate version.h from template — single source of truth for version numbers
 configure_file(version.h.in "${CMAKE_CURRENT_BINARY_DIR}/version.h" @ONLY)
@@ -38,7 +38,6 @@ add_library(windbg_agent SHARED
     main.cpp
     output_capture.cpp
     settings.cpp
-    session_store.cpp
     dml_output.cpp
     windbg_client.cpp
     http_server.cpp
@@ -51,7 +50,6 @@ target_sources(windbg_agent PRIVATE windbg_agent.def)
 # Link with libagents and Windows debugging libraries
 target_link_libraries(windbg_agent
     PRIVATE
-        libagents         # Unified provider library
         fastmcpp_core     # MCP server library (via libagents/claude-agent-sdk-cpp)
         dbgeng            # Debugging Engine API
         dbghelp           # Debug Help Library
@@ -80,21 +78,6 @@ if(NOT EXISTS "${WINDBG_TESTS_DIR}/session_restore_test.cpp")
     set(WINDBG_TESTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../tests/windbg")
 endif()
 
-# Session restore test (standalone SDK test)
-if(EXISTS "${WINDBG_TESTS_DIR}/session_restore_test.cpp")
-    add_executable(session_restore_test
-        ${WINDBG_TESTS_DIR}/session_restore_test.cpp
-    )
-    target_link_libraries(session_restore_test PRIVATE libagents)
-endif()
-
-# MCP tool test (verify MCP tools work)
-if(EXISTS "${WINDBG_TESTS_DIR}/test_mcp_tool.cpp")
-    add_executable(test_mcp_tool
-        ${WINDBG_TESTS_DIR}/test_mcp_tool.cpp
-    )
-    target_link_libraries(test_mcp_tool PRIVATE libagents)
-endif()
 
 # Repro test for MCP tool visibility issue
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/repro/CMakeLists.txt")
@@ -102,30 +85,29 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/repro/CMakeLists.txt")
 endif()
 
 # ============================================================================
-# HTTP server CLI executable (disabled — source stays in cli/ for future use)
+# HTTP server CLI executable (off by default; monorepo enables it)
 # ============================================================================
-# add_executable(windbg_agent_cli
-#     cli/main.cpp
-#     settings.cpp
-# )
-#
-# target_include_directories(windbg_agent_cli PRIVATE
-#     ${cpp_httplib_SOURCE_DIR}
-#     ${CMAKE_CURRENT_SOURCE_DIR}
-#     ${CMAKE_CURRENT_BINARY_DIR}
-# )
-#
-# target_link_libraries(windbg_agent_cli PRIVATE
-#     libagents
-#     nlohmann_json::nlohmann_json
-#     ws2_32
-# )
-#
-# set_target_properties(windbg_agent_cli PROPERTIES
-#     OUTPUT_NAME "windbg_agent"
-# )
-#
-# set_target_properties(windbg_agent_cli PROPERTIES
-#     MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
-# )
+option(BUILD_CLI "Build windbg_agent CLI executable" OFF)
+
+if(BUILD_CLI)
+    add_executable(windbg_agent_cli
+        cli/main.cpp
+    )
+
+    target_include_directories(windbg_agent_cli PRIVATE
+        ${cpp_httplib_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR}
+    )
+
+    # nlohmann_json comes via libagents subdirectory (fetched there)
+    target_link_libraries(windbg_agent_cli PRIVATE
+        nlohmann_json
+        ws2_32
+    )
+
+    set_target_properties(windbg_agent_cli PROPERTIES
+        OUTPUT_NAME "windbg_agent"
+    )
+endif()
 

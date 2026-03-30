@@ -9,6 +9,42 @@
 #include <chrono>
 #include <sstream>
 
+#ifdef _WIN32
+#include <WinSock2.h>
+#pragma comment(lib, "ws2_32.lib")
+#endif
+
+namespace {
+
+// Find a free port by binding to port 0 and reading the assigned port
+int find_free_port(const std::string& bind_addr) {
+#ifdef _WIN32
+    WSADATA wsa;
+    WSAStartup(MAKEWORD(2, 2), &wsa);
+#endif
+    int sock = static_cast<int>(socket(AF_INET, SOCK_STREAM, 0));
+    if (sock < 0) return -1;
+
+    struct sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = 0;
+    addr.sin_addr.s_addr = INADDR_ANY;
+
+    if (bind(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        closesocket(sock);
+        return -1;
+    }
+
+    struct sockaddr_in bound{};
+    int len = sizeof(bound);
+    getsockname(sock, (struct sockaddr*)&bound, &len);
+    int port = ntohs(bound.sin_port);
+    closesocket(sock);
+    return port;
+}
+
+} // namespace
+
 namespace windbg_agent {
 
 using Json = nlohmann::json;
@@ -25,13 +61,12 @@ MCPServer::~MCPServer() {
     stop();
 }
 
-MCPQueueResult MCPServer::queue_and_wait(MCPPendingCommand::Type type, const std::string& input) {
+MCPQueueResult MCPServer::queue_and_wait(const std::string& input) {
     if (!running_.load()) {
         return {false, "Error: MCP server is not running"};
     }
 
     MCPPendingCommand cmd;
-    cmd.type = type;
     cmd.input = input;
     cmd.completed = false;
 
@@ -58,15 +93,21 @@ MCPQueueResult MCPServer::queue_and_wait(MCPPendingCommand::Type type, const std
     return {true, cmd.result};
 }
 
-int MCPServer::start(int port, ExecCallback exec_cb, AskCallback ask_cb,
+int MCPServer::start(int port, ExecCallback exec_cb,
                      const std::string& bind_addr) {
     if (running_.load()) {
         return port_;
     }
 
     exec_cb_ = exec_cb;
-    ask_cb_ = ask_cb;
     bind_addr_ = bind_addr;
+
+    // fastmcpp's SseServerWrapper doesn't support port 0 (auto-assign),
+    // so find a free port ourselves when port 0 is requested
+    if (port == 0) {
+        port = find_free_port(bind_addr);
+        if (port <= 0) return -1;
+    }
 
     impl_ = std::make_unique<Impl>();
 
@@ -105,7 +146,7 @@ int MCPServer::start(int port, ExecCallback exec_cb, AskCallback ask_cb,
                 };
             }
 
-            auto result = queue_and_wait(MCPPendingCommand::Type::Exec, command);
+            auto result = queue_and_wait(command);
 
             // MCP tools/call expects content array format
             return Json{
@@ -119,58 +160,9 @@ int MCPServer::start(int port, ExecCallback exec_cb, AskCallback ask_cb,
     dbg_exec_tool.set_description("Execute a WinDbg/CDB debugger command and return its output");
     impl_->tool_manager.register_tool(dbg_exec_tool);
 
-    // Register dbg_ask tool
-    Json ask_input_schema = {
-        {"type", "object"},
-        {"properties", {
-            {"query", {
-                {"type", "string"},
-                {"description", "Question to ask the AI debugging assistant"}
-            }}
-        }},
-        {"required", Json::array({"query"})}
-    };
-
-    Json ask_output_schema = {
-        {"type", "object"},
-        {"properties", {
-            {"response", {{"type", "string"}}},
-            {"success", {{"type", "boolean"}}}
-        }}
-    };
-
-    fastmcpp::tools::Tool dbg_ask_tool{
-        "dbg_ask",
-        ask_input_schema,
-        ask_output_schema,
-        [this](const Json& args) -> Json {
-            std::string query = args.value("query", "");
-            if (query.empty()) {
-                return Json{
-                    {"content", Json::array({
-                        Json{{"type", "text"}, {"text", "Error: missing query"}}
-                    })},
-                    {"isError", true}
-                };
-            }
-
-            auto result = queue_and_wait(MCPPendingCommand::Type::Ask, query);
-
-            return Json{
-                {"content", Json::array({
-                    Json{{"type", "text"}, {"text", result.payload}}
-                })},
-                {"isError", !result.success}
-            };
-        }
-    };
-    dbg_ask_tool.set_description("Ask the AI debugging assistant a question about the current debug session");
-    impl_->tool_manager.register_tool(dbg_ask_tool);
-
     // Create MCP handler
     std::unordered_map<std::string, std::string> descriptions = {
-        {"dbg_exec", "Execute a WinDbg/CDB debugger command and return its output"},
-        {"dbg_ask", "Ask the AI debugging assistant a question about the current debug session"}
+        {"dbg_exec", "Execute a WinDbg/CDB debugger command and return its output"}
     };
 
     auto handler = fastmcpp::mcp::make_mcp_handler(
@@ -194,7 +186,7 @@ int MCPServer::start(int port, ExecCallback exec_cb, AskCallback ask_cb,
         return -1;
     }
 
-    port_ = port;
+    port_ = impl_->server->port();
     running_.store(true);
 
     return port_;
@@ -226,12 +218,10 @@ void MCPServer::wait() {
 
         if (cmd) {
             try {
-                if (cmd->type == MCPPendingCommand::Type::Exec && exec_cb_) {
+                if (exec_cb_) {
                     cmd->result = exec_cb_(cmd->input);
-                } else if (cmd->type == MCPPendingCommand::Type::Ask && ask_cb_) {
-                    cmd->result = ask_cb_(cmd->input);
                 } else {
-                    cmd->result = "Error: No handler for command type";
+                    cmd->result = "Error: No exec handler";
                 }
             } catch (const std::exception& e) {
                 cmd->result = std::string("Error: ") + e.what();
@@ -297,8 +287,7 @@ std::string format_mcp_info(
     ss << "Message Endpoint: " << url << "/messages\n\n";
 
     ss << "AVAILABLE TOOLS:\n";
-    ss << "  dbg_exec  - Execute a debugger command\n";
-    ss << "  dbg_ask   - Ask the AI assistant a question\n\n";
+    ss << "  dbg_exec  - Execute a debugger command\n\n";
 
     ss << "MCP CLIENT CONFIGURATION:\n";
     ss << "Add to your MCP client (e.g., Claude Desktop):\n";

@@ -25,8 +25,6 @@ class DmlOutput
     // Convenience methods for common message types
     void OutputCommand(const char* cmd);          // Command being run (subdued)
     void OutputCommandResult(const char* result); // Command output (normal)
-    void OutputAgentThinking(const char* msg);    // Agent status (emphasis)
-    void OutputAgentResponse(const char* msg);    // Agent response (normal)
     void OutputError(const char* msg);            // Error messages (red)
     void OutputWarning(const char* msg);          // Warning messages (yellow)
 

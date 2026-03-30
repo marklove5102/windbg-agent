@@ -24,13 +24,12 @@ HttpServer::~HttpServer() {
     stop();
 }
 
-QueueResult HttpServer::queue_and_wait(PendingCommand::Type type, const std::string& input) {
+QueueResult HttpServer::queue_and_wait(const std::string& input) {
     if (!running_.load()) {
         return {false, "Error: HTTP server is not running"};
     }
 
     PendingCommand cmd;
-    cmd.type = type;
     cmd.input = input;
     cmd.completed = false;
 
@@ -57,14 +56,13 @@ QueueResult HttpServer::queue_and_wait(PendingCommand::Type type, const std::str
     return {true, cmd.result};
 }
 
-int HttpServer::start(ExecCallback exec_cb, AskCallback ask_cb,
+int HttpServer::start(ExecCallback exec_cb,
                       const std::string& bind_addr) {
     if (running_.load()) {
         return port_;
     }
 
     exec_cb_ = exec_cb;
-    ask_cb_ = ask_cb;
     bind_addr_ = bind_addr;
 
     impl_ = std::make_unique<Impl>();
@@ -87,32 +85,8 @@ int HttpServer::start(ExecCallback exec_cb, AskCallback ask_cb,
                 return;
             }
 
-            auto result = queue_and_wait(PendingCommand::Type::Exec, command);
+            auto result = queue_and_wait(command);
             nlohmann::json response = {{"output", result.payload}, {"success", result.success}};
-            if (!result.success) {
-                res.status = 503;
-            }
-            res.set_content(response.dump(), "application/json");
-        } catch (const std::exception& e) {
-            res.status = 500;
-            nlohmann::json response = {{"error", e.what()}, {"success", false}};
-            res.set_content(response.dump(), "application/json");
-        }
-    });
-
-    impl_->server.Post("/ask", [this](const httplib::Request& req, httplib::Response& res) {
-        try {
-            auto json = nlohmann::json::parse(req.body);
-            std::string query = json.value("query", "");
-
-            if (query.empty()) {
-                res.status = 400;
-                res.set_content(R"({"error":"missing query","success":false})", "application/json");
-                return;
-            }
-
-            auto result = queue_and_wait(PendingCommand::Type::Ask, query);
-            nlohmann::json response = {{"response", result.payload}, {"success", result.success}};
             if (!result.success) {
                 res.status = 503;
             }
@@ -178,12 +152,10 @@ void HttpServer::wait() {
 
         if (cmd) {
             try {
-                if (cmd->type == PendingCommand::Type::Exec && exec_cb_) {
+                if (exec_cb_) {
                     cmd->result = exec_cb_(cmd->input);
-                } else if (cmd->type == PendingCommand::Type::Ask && ask_cb_) {
-                    cmd->result = ask_cb_(cmd->input);
                 } else {
-                    cmd->result = "Error: No handler for command type";
+                    cmd->result = "Error: No exec handler";
                 }
             } catch (const std::exception& e) {
                 cmd->result = std::string("Error: ") + e.what();
@@ -276,40 +248,25 @@ std::string format_http_info(
     ss << "URL: " << url << "\n\n";
 
     ss << "HTTP API ENDPOINTS:\n";
-    ss << "  POST " << url << "/exec   - Execute raw debugger command\n";
-    ss << "  POST " << url << "/ask    - AI-assisted query (natural language)\n";
-    ss << "  GET  " << url << "/status - Server status\n";
+    ss << "  POST " << url << "/exec     - Execute raw debugger command\n";
+    ss << "  GET  " << url << "/status   - Server status\n";
     ss << "  POST " << url << "/shutdown - Stop server\n\n";
 
     ss << "CURL EXAMPLES:\n";
-    ss << "  # Execute debugger command (returns raw output)\n";
     ss << "  curl -X POST " << url << "/exec \\\n";
     ss << "    -H \"Content-Type: application/json\" \\\n";
     ss << "    -d '{\"command\": \"kb\"}'\n\n";
 
-    ss << "  # AI query (natural language, returns explanation)\n";
-    ss << "  curl -X POST " << url << "/ask \\\n";
-    ss << "    -H \"Content-Type: application/json\" \\\n";
-    ss << "    -d '{\"query\": \"what is the value of RAX?\"}'\n\n";
-
-    ss << "  # More examples\n";
     ss << "  curl -X POST " << url << "/exec -H \"Content-Type: application/json\" -d '{\"command\": \"r rax\"}'\n";
-    ss << "  curl -X POST " << url << "/exec -H \"Content-Type: application/json\" -d '{\"command\": \"!analyze -v\"}'\n";
-    ss << "  curl -X POST " << url << "/ask -H \"Content-Type: application/json\" -d '{\"query\": \"explain this crash\"}'\n\n";
+    ss << "  curl -X POST " << url << "/exec -H \"Content-Type: application/json\" -d '{\"command\": \"!analyze -v\"}'\n\n";
 
     ss << "PYTHON:\n";
     ss << "  import requests\n";
-    ss << "  # Execute command\n";
     ss << "  r = requests.post('" << url << "/exec', json={'command': 'kb'})\n";
     ss << "  print(r.json()['output'])\n\n";
 
-    ss << "  # AI query\n";
-    ss << "  r = requests.post('" << url << "/ask', json={'query': 'what caused this crash?'})\n";
-    ss << "  print(r.json()['response'])\n\n";
-
     ss << "RESPONSE FORMAT:\n";
     ss << "  /exec returns: {\"output\": \"...\", \"success\": true}\n";
-    ss << "  /ask returns:  {\"response\": \"...\", \"success\": true}\n\n";
 
     return ss.str();
 }

@@ -11,14 +11,11 @@
 
 namespace windbg_agent {
 
-// Callbacks for handling requests
+// Callback for handling exec requests
 using ExecCallback = std::function<std::string(const std::string& command)>;
-using AskCallback = std::function<std::string(const std::string& query)>;
 
 // Internal command structure for cross-thread execution
 struct PendingCommand {
-    enum class Type { Exec, Ask };
-    Type type;
     std::string input;
     std::string result;
     bool completed = false;
@@ -44,11 +41,11 @@ public:
     // Returns actual port used
     // Callbacks will be called on the main thread (in wait())
     // bind_addr: "127.0.0.1" for localhost only, "0.0.0.0" for all interfaces
-    int start(ExecCallback exec_cb, AskCallback ask_cb,
+    int start(ExecCallback exec_cb,
               const std::string& bind_addr = "127.0.0.1");
 
     // Block until server stops, processing commands on the calling thread
-    // This is where exec_cb and ask_cb get called
+    // This is where exec_cb gets called
     void wait();
 
     // Stop the server
@@ -64,7 +61,7 @@ public:
     const std::string& bind_addr() const { return bind_addr_; }
 
     // Queue a command for execution on the main thread (called by HTTP handlers)
-    QueueResult queue_and_wait(PendingCommand::Type type, const std::string& input);
+    QueueResult queue_and_wait(const std::string& input);
 
     // Set interrupt check function (called during wait loop)
     void set_interrupt_check(std::function<bool()> check);
@@ -81,9 +78,8 @@ private:
     std::condition_variable queue_cv_;
     std::queue<PendingCommand*> pending_commands_;
 
-    // Callbacks stored for main thread execution
+    // Callback stored for main thread execution
     ExecCallback exec_cb_;
-    AskCallback ask_cb_;
 
     // Forward declaration - impl hides httplib
     class Impl;
