@@ -5,6 +5,7 @@
 #include "http_server.hpp"
 #include "mcp_server.hpp"
 #include "version.h"
+#include "dml_output.hpp"
 #include "windbg_client.hpp"
 
 namespace
@@ -128,10 +129,14 @@ HRESULT CALLBACK agent_impl(PDEBUG_CLIENT Client, PCSTR Args)
         std::string state = dbg_client.GetTargetState();
         ULONG pid = dbg_client.GetProcessId();
 
-        // Create exec callback - executes debugger commands
-        windbg_agent::ExecCallback exec_cb = [&dbg_client](const std::string& command) -> std::string
+        // Create exec callback - executes debugger commands and echoes to console
+        windbg_agent::DmlOutput dml(control);
+        windbg_agent::ExecCallback exec_cb = [&dbg_client, &dml](const std::string& command) -> std::string
         {
-            return dbg_client.ExecuteCommand(command);
+            dml.OutputCommand(command.c_str());
+            std::string result = dbg_client.ExecuteCommand(command);
+            dml.OutputCommandResult(result.c_str());
+            return result;
         };
 
         // Start the HTTP server (OS assigns port)
@@ -208,10 +213,14 @@ HRESULT CALLBACK agent_impl(PDEBUG_CLIENT Client, PCSTR Args)
         std::string state = dbg_client.GetTargetState();
         ULONG pid = dbg_client.GetProcessId();
 
-        // Create exec callback - executes debugger commands
-        windbg_agent::ExecCallback exec_cb = [&dbg_client](const std::string& command) -> std::string
+        // Create exec callback - executes debugger commands and echoes to console
+        windbg_agent::DmlOutput dml(control);
+        windbg_agent::ExecCallback exec_cb = [&dbg_client, &dml](const std::string& command) -> std::string
         {
-            return dbg_client.ExecuteCommand(command);
+            dml.OutputCommand(command.c_str());
+            std::string result = dbg_client.ExecuteCommand(command);
+            dml.OutputCommandResult(result.c_str());
+            return result;
         };
 
         // Start the MCP server
