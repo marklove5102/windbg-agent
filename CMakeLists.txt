@@ -20,8 +20,11 @@ if(NOT WIN32)
 endif()
 
 # Add libagents if building standalone (not part of monorepo)
+# EXCLUDE_FROM_ALL: we only need fastmcpp_core from this tree; skip building
+# claude_sdk, copilot_sdk_cpp, libagents CLIs/examples which windbg_agent does
+# not link against.
 if(NOT TARGET libagents)
-    add_subdirectory(external/libagents)
+    add_subdirectory(external/libagents EXCLUDE_FROM_ALL)
 endif()
 
 # Fetch cpp-httplib for HTTP server and CLI
